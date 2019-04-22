@@ -1,0 +1,12 @@
+## Go 语言的内存分配机制
+
+
+
+
+
+
+
+### 参考
+
+![Go语言内存分配器设计](http://skoo.me/go/2013/10/08/go-memory-manage-system-design)
+![图解TCMalloc](https://zhuanlan.zhihu.com/p/29216091)

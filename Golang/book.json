@@ -1,0 +1,14 @@
+{    
+"title": "Golang学习笔记",    
+"description": " 记录学习Go语言的点滴",    
+"author": "helight",    
+"language": "zh-hans",    
+"styles":{        
+     "website":"styles/website.css"
+    },    
+"plugins": [        
+     "search",        
+     "-sharing"
+    ],    
+"pluginsConfig": {}
+}
