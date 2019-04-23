@@ -1,4 +1,4 @@
-## Go 语言的内存分配机制
+## Go内存分配机制
 
 
 
@@ -10,3 +10,5 @@
 ![Go语言内存分配器设计](http://skoo.me/go/2013/10/08/go-memory-manage-system-design)
 ![图解TCMalloc](https://zhuanlan.zhihu.com/p/29216091)
 ![简单易懂的 Go 内存分配原理解读](https://yq.aliyun.com/articles/652551)
+![图解 Go 内存分配器](https://www.infoq.cn/article/IEhRLwmmIM7-11RYaLHR)
+![golang内存分配](https://studygolang.com/articles/5790)
