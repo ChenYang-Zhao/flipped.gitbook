@@ -1,14 +1,21 @@
 ## Go内存分配机制
 
+
+
+
+
+### Object alloc pseudo code
+
 ```Go
 func mallocgc(type, size) pointer {
     m := aquirem // 获得M
     m.mallocing=1 //lock
     c := gomcache() // 获取当前goroutine的cache
-    
+    noscan := type == nil || (type.kind != pointerKind)
+
     if size <= maxSmallSize {
-        if size <= maxTinySize && notContainsPointer {
-            //tiny object alloc
+        if size <= maxTinySize && noscan {
+            //tiny object 分配
             if c.tinyBlock != nil{
                 //直接在cache的tiny block上分配
                 m.mallocing = 0 //unlock
@@ -23,7 +30,7 @@ func mallocgc(type, size) pointer {
             }
             x := unsafe.Pointer(v)
         }else {
-            //normal small object alloc
+            //正常 small object 分配
             sizeClass := size_to_class[size]//根据object的size获取class
             size = class_to_size[sizeClass] //获取真实要分配的memory的大小，大于等于请求大小
             span := c.alloc[sizeClass, noscan] //根据size class 和noscan参数获取cache中对应的span的头指针
@@ -46,9 +53,6 @@ func mallocgc(type, size) pointer {
 }
 
 ```
-
-
-
 
 ### 参考
 
