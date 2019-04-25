@@ -1,0 +1,535 @@
+
+<!DOCTYPE HTML>
+<html lang="zh-hans" >
+    <head>
+        <meta charset="UTF-8">
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <title>内存分配 · Golang学习笔记</title>
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <meta name="description" content="">
+        <meta name="generator" content="GitBook 3.2.3">
+        <meta name="author" content="helight">
+        
+        
+    
+    <link rel="stylesheet" href="../../gitbook/style.css">
+
+    
+            
+                
+                <link rel="stylesheet" href="../../gitbook/gitbook-plugin-search/search.css">
+                
+            
+                
+                <link rel="stylesheet" href="../../gitbook/gitbook-plugin-highlight/website.css">
+                
+            
+                
+                <link rel="stylesheet" href="../../gitbook/gitbook-plugin-fontsettings/website.css">
+                
+            
+        
+
+    
+
+    
+        
+        <link rel="stylesheet" href="../../styles/website.css">
+        
+    
+
+        
+    
+    
+    <meta name="HandheldFriendly" content="true"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon-precomposed" sizes="152x152" href="../../gitbook/images/apple-touch-icon-precomposed-152.png">
+    <link rel="shortcut icon" href="../../gitbook/images/favicon.ico" type="image/x-icon">
+
+    
+    <link rel="next" href="goroutine-schedule.html" />
+    
+    
+    <link rel="prev" href="CHAPTER.md" />
+    
+
+    </head>
+    <body>
+        
+<div class="book">
+    <div class="book-summary">
+        
+            
+<div id="book-search-input" role="search">
+    <input type="text" placeholder="输入并搜索" />
+</div>
+
+            
+                <nav role="navigation">
+                
+
+
+<ul class="summary">
+    
+    
+
+    
+
+    
+        
+        
+    
+        <li class="chapter " data-level="1.1" data-path="../../">
+            
+                <a href="../../">
+            
+                    
+                    Introduction
+            
+                </a>
+            
+
+            
+            <ul class="articles">
+                
+    
+        <li class="chapter " data-level="1.1.1" data-path="CHAPTER.md">
+            
+                <span>
+            
+                    
+                    Golang runtime分析
+            
+                </a>
+            
+
+            
+            <ul class="articles">
+                
+    
+        <li class="chapter active" data-level="1.1.1.1" data-path="memory-alloc.html">
+            
+                <a href="memory-alloc.html">
+            
+                    
+                    内存分配
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.1.1.2" data-path="goroutine-schedule.html">
+            
+                <a href="goroutine-schedule.html">
+            
+                    
+                    Goroutine调度
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.1.1.3" data-path="memory-escape.html">
+            
+                <a href="memory-escape.html">
+            
+                    
+                    内存逃逸
+            
+                </a>
+            
+
+            
+        </li>
+    
+
+            </ul>
+            
+        </li>
+    
+
+            </ul>
+            
+        </li>
+    
+
+    
+
+    <li class="divider"></li>
+
+    <li>
+        <a href="https://www.gitbook.com" target="blank" class="gitbook-link">
+            本书使用 GitBook 发布
+        </a>
+    </li>
+</ul>
+
+
+                </nav>
+            
+        
+    </div>
+
+    <div class="book-body">
+        
+            <div class="body-inner">
+                
+                    
+
+<div class="book-header" role="navigation">
+    
+
+    <!-- Title -->
+    <h1>
+        <i class="fa fa-circle-o-notch fa-spin"></i>
+        <a href="../.." >内存分配</a>
+    </h1>
+</div>
+
+
+
+
+                    <div class="page-wrapper" tabindex="-1" role="main">
+                        <div class="page-inner">
+                            
+<div id="book-search-results">
+    <div class="search-noresults">
+    
+                                <section class="normal markdown-section">
+                                
+                                <h2 id="go&#x5185;&#x5B58;&#x5206;&#x914D;&#x673A;&#x5236;">Go&#x5185;&#x5B58;&#x5206;&#x914D;&#x673A;&#x5236;</h2>
+<h3 id="&#x6570;&#x636E;&#x6A21;&#x578B;">&#x6570;&#x636E;&#x6A21;&#x578B;</h3>
+<h4 id="mspan">mspan</h4>
+<pre><code class="lang-Go"><span class="hljs-keyword">type</span> gcBits <span class="hljs-keyword">uint8</span>
+
+<span class="hljs-keyword">type</span> mspan <span class="hljs-keyword">struct</span> {
+    next *mspan
+    prev *mspan
+    list *mspanList
+    startAddr <span class="hljs-keyword">uintptr</span>
+    npages <span class="hljs-keyword">uintptr</span>
+    <span class="hljs-comment">//&#x4ECB;&#x4E8E;0&#x548C;nelems&#x4E4B;&#x95F4;&#x7684;&#x503C;&#xFF0C;&#x6807;&#x8BC6;&#x4E0B;&#x6B21;&#x5206;&#x914D;object&#x65F6;&#x626B;&#x63CF;allocBits&#x4E0B;&#x6807;&#x7684;&#x5F00;&#x59CB;&#x4F4D;&#x7F6E;&#xFF1B;&#x5982;&#x679C;freeindex==nelems, &#x8868;&#x793A;&#x5F53;&#x524D;span&#x6CA1;&#x6709;&#x53EF;&#x5206;&#x914D;&#x7684;object</span>
+    <span class="hljs-comment">//&#x6BCF;&#x6B21;&#x5206;&#x914D;&#x6210;&#x529F;&#xFF0C;&#x4F1A;&#x4FEE;&#x6539;&#x8BE5;&#x503C;</span>
+    freeindex <span class="hljs-keyword">uintptr</span> 
+    <span class="hljs-comment">//allocBits&#x4ECE;freeindex&#x5904;&#x5F00;&#x59CB;&#x7684;&#x7F13;&#x5B58;&#xFF0C;&#x5B83;&#x7684;&#x6700;&#x4F4E;&#x4F4D;&#x4E0E;freeindex&#x6240;&#x5728;&#x7684;&#x4F4D;&#x7F6E;&#x5BF9;&#x9F50;; </span>
+    <span class="hljs-comment">//&#x5E76;&#x4E14;&#xFF0C;`0`&#x8868;&#x793A;&#x5DF2;&#x5206;&#x914D;&#xFF0C;`1`&#x8868;&#x793A;&#x672A;&#x5206;&#x914D;&#xFF0C;&#x4E0E;allocBits&#x76F8;&#x53CD;&#xFF1B;&#x6BD4;&#x5982;&#xFF0C;&#x5982;&#x679C;8&#x4F4D;&#xFF0C;&#x5DF2;&#x5206;&#x914D;&#x4E24;&#x4E2A;&#xFF0C;&#x5219;allocCache&#x5F53;&#x524D;&#x4F4D;`00111111`</span>
+    <span class="hljs-comment">//&#x5982;&#x679C;&#x518D;&#x5206;&#x914D;&#x4E00;&#x4E2A;&#xFF0C;&#x53D8;&#x4E3A;`00011111`</span>
+    allocCache <span class="hljs-keyword">uint64</span> 
+    nelems <span class="hljs-keyword">uintptr</span> <span class="hljs-comment">// &#x5F53;&#x524D;span&#x4E2D;&#x7684;object&#x6570;&#x91CF;</span>
+    allocBits *gcBits <span class="hljs-comment">//uint8&#x7C7B;&#x578B;&#x7684;&#x6570;&#x7EC4;&#xFF0C;&#x6570;&#x7EC4;&#x4E2D;&#x7684;&#x6BCF;&#x4E2A;&#x503C;&#x8868;&#x793A;&#x591A;&#x4E2A;&#x4F4D;&#x7F6E;&#x7684;object&#x7684;&#x5206;&#x914D;&#x60C5;&#x51B5;</span>
+    gcmarkBits *gcBits
+    elemsize <span class="hljs-keyword">uintptr</span> <span class="hljs-comment">//span&#x4E2D;&#x53EF;&#x5206;&#x914D;&#x7684;object&#x7684;size</span>
+    allocCount <span class="hljs-keyword">uint16</span> <span class="hljs-comment">//span&#x4E2D;&#x5DF2;&#x5206;&#x914D;&#x7684;object&#x7684;&#x4E2A;&#x6570;</span>
+}
+</code></pre>
+<h4 id="mcentral">mcentral</h4>
+<pre><code class="lang-Go"><span class="hljs-keyword">type</span> mcentral <span class="hljs-keyword">struct</span> {
+    lock mutex <span class="hljs-comment">//&#x9501;&#xFF0C;&#x7531;&#x4E8E;mcentral&#x5BF9;&#x8C61;&#x662F;&#x6240;&#x6709;goroutine&#x5171;&#x4EAB;&#x7684;&#xFF0C;&#x5206;&#x914D;&#x5FC5;&#x987B;&#x52A0;&#x9501;</span>
+    spanclass spanClass <span class="hljs-comment">//&#x6B64;mcentral&#x5BF9;&#x5E94;&#x7684;class&#x5BF9;&#x8C61;&#xFF0C;&#x6BCF;&#x4E2A;class&#x5BF9;&#x5E94;&#x4E00;&#x4E2A;&#x5206;&#x914D;&#x7684;object&#x7684;&#x5927;&#x5C0F;</span>
+    nonempty mSpanList  <span class="hljs-comment">//&#x8FD8;&#x6709;&#x53EF;&#x5206;&#x914D;&#x7A7A;&#x95F4;&#x7684;span&#x5217;&#x8868;</span>
+    empty mSpanList <span class="hljs-comment">//&#x6CA1;&#x6709;&#x53EF;&#x5206;&#x914D;&#x7A7A;&#x95F4;&#x7684;span&#x5217;&#x8868;</span>
+    nmalloc <span class="hljs-keyword">uint64</span> <span class="hljs-comment">// &#x4ECE;&#x6B21;mcentral&#x5206;&#x914D;&#x51FA;&#x53BB;&#x7684;object&#x7684;&#x7D2F;&#x8BA1;&#x4E2A;&#x6570;&#xFF0C;&#x5047;&#x8BBE;&#x6240;&#x6709;&#x5DF2;&#x88AB;mcache&#x7F13;&#x5B58;&#x7684;span&#x4E2D;&#x6240;&#x6709;&#x7684;object&#x90FD;&#x5DF2;&#x5206;&#x914D;</span>
+}
+</code></pre>
+<h3 id="&#x6D41;&#x7A0B;">&#x6D41;&#x7A0B;</h3>
+<h4 id="&#x5BF9;&#x8C61;&#x5206;&#x914D;&#x903B;&#x8F91;">&#x5BF9;&#x8C61;&#x5206;&#x914D;&#x903B;&#x8F91;</h4>
+<pre><code class="lang-Go"><span class="hljs-keyword">func</span> mallocgc(<span class="hljs-keyword">type</span>, size) pointer {
+    m := aquirem <span class="hljs-comment">// &#x83B7;&#x5F97;M</span>
+    m.mallocing=<span class="hljs-number">1</span> <span class="hljs-comment">//lock</span>
+    c := gomcache() <span class="hljs-comment">// &#x83B7;&#x53D6;&#x5F53;&#x524D;goroutine&#x7684;cache</span>
+    noscan := <span class="hljs-keyword">type</span> == <span class="hljs-literal">nil</span> || (<span class="hljs-keyword">type</span>.kind != pointerKind)
+
+    <span class="hljs-keyword">if</span> size &lt;= maxSmallSize {
+        <span class="hljs-keyword">if</span> size &lt;= maxTinySize &amp;&amp; noscan {
+            <span class="hljs-comment">//tiny object &#x5206;&#x914D;</span>
+            <span class="hljs-keyword">if</span> c.tinyBlock != <span class="hljs-literal">nil</span>{
+                <span class="hljs-comment">//&#x76F4;&#x63A5;&#x5728;cache&#x7684;tiny block&#x4E0A;&#x5206;&#x914D;</span>
+                m.mallocing = <span class="hljs-number">0</span> <span class="hljs-comment">//unlock</span>
+                releasem(m) <span class="hljs-comment">//&#x91CA;&#x653E;M</span>
+                <span class="hljs-keyword">return</span>
+            }
+            span := c.alloc[tinySpanClass] <span class="hljs-comment">//&#x83B7;&#x53D6;cache &#x4E0A;tiny class&#x7684;&#x5934;span&#x6307;&#x9488;</span>
+            v := nextFreeFast(span)<span class="hljs-comment">// &#x5FEB;&#x901F;&#x67E5;&#x8BE2;&#xFF0C;&#x83B7;&#x53D6;&#x53EF;&#x4EE5;&#x5206;&#x914D;&#x7684;object&#x7684;&#x4F4D;&#x7F6E;</span>
+            <span class="hljs-keyword">if</span> v == <span class="hljs-number">0</span> {
+                <span class="hljs-comment">//&#x5FEB;&#x8BFB;&#x67E5;&#x8BE2;&#x5931;&#x8D25;&#xFF0C;&#x5E38;&#x89C4;&#x5206;&#x914D;</span>
+                v = c.nextFree(tinySpanClass)
+            }
+            x := unsafe.Pointer(v)
+        }<span class="hljs-keyword">else</span> {
+            <span class="hljs-comment">//&#x6B63;&#x5E38; small object &#x5206;&#x914D;</span>
+            sizeClass := size_to_class[size]<span class="hljs-comment">//&#x6839;&#x636E;object&#x7684;size&#x83B7;&#x53D6;class</span>
+            size = class_to_size[sizeClass] <span class="hljs-comment">//&#x83B7;&#x53D6;&#x771F;&#x5B9E;&#x8981;&#x5206;&#x914D;&#x7684;memory&#x7684;&#x5927;&#x5C0F;&#xFF0C;&#x5927;&#x4E8E;&#x7B49;&#x4E8E;&#x8BF7;&#x6C42;&#x5927;&#x5C0F;</span>
+            span := c.alloc[sizeClass, noscan] <span class="hljs-comment">//&#x6839;&#x636E;size class &#x548C;noscan&#x53C2;&#x6570;&#x83B7;&#x53D6;cache&#x4E2D;&#x5BF9;&#x5E94;&#x7684;&#x53EF;&#x5206;&#x914D;span&#x7684;&#x6307;&#x9488;</span>
+            v := nextFreeFast(span)<span class="hljs-comment">// &#x5728;spanClass&#x5BF9;&#x5E94;&#x7684;span&#x5217;&#x8868;&#x7684;&#x7B2C;&#x4E00;&#x4E2A;span&#x4E0A;&#x5FEB;&#x901F;&#x627E;&#x5230;&#x53EF;&#x5206;&#x914D;&#x7684;object&#x7684;&#x4F4D;&#x7F6E;</span>
+            <span class="hljs-keyword">if</span> v == <span class="hljs-number">0</span> {
+                v = nextFree(span)<span class="hljs-comment">// &#x5FEB;&#x901F;&#x5206;&#x914D;&#x5931;&#x8D25;&#xFF0C;&#x5E38;&#x89C4;&#x5206;&#x914D;&#x5230;&#x53EF;&#x7528;&#x7684;object&#x4F4D;&#x7F6E;</span>
+            }
+            x := unsafe.Pointer(v)
+        }
+    } <span class="hljs-keyword">else</span> {
+        <span class="hljs-comment">//&#x5927;&#x5BF9;&#x8C61;&#x5206;&#x914D;</span>
+        x := largeAlloc(size, needzero, noscan) <span class="hljs-comment">//&#x5927;&#x5BF9;&#x8C61;&#x76F4;&#x63A5;&#x5728;heap&#x91CC;&#x5206;&#x914D;</span>
+    }
+
+    m.mallocing = <span class="hljs-number">0</span> <span class="hljs-comment">//unlock</span>
+    releasem(m) <span class="hljs-comment">//&#x91CA;&#x653E;M</span>
+    <span class="hljs-comment">//handle memory profile ...</span>
+
+    <span class="hljs-keyword">return</span> x
+}
+</code></pre>
+<h4 id="nextfreefast-&#x903B;&#x8F91;">nextFreeFast &#x903B;&#x8F91;</h4>
+<p>&#x5728;&#x5F53;&#x524D;allocCache&#x4E2D;&#x5206;&#x914D;</p>
+<pre><code class="lang-Go"><span class="hljs-comment">//return the next free object if one is quickly available</span>
+<span class="hljs-comment">//otherwise, return 0</span>
+<span class="hljs-keyword">func</span> nextFreeFast(*span) gclinkptr {
+    theBit := Ctz64(span.allocCache) <span class="hljs-comment">//&#x4ECE;&#x5730;&#x4F4D;&#x5F80;&#x9AD8;&#x4F4D;&#x67E5;&#x627E;allocCache&#x4E2D;&#x4ECE;&#x4F4E;&#x4F4D;&#x5F00;&#x59CB;0&#x7684;&#x4E2A;&#x6570;, &#x5982;&#x679C;allocCache&#x4E2D;&#x4ECD;&#x7136;&#x6709;obejct&#x53EF;&#x4EE5;&#x5206;&#x914D;&#xFF0C;&#x6B64;&#x65B9;&#x6CD5;&#x4E00;&#x5B9A;&#x8FD4;&#x56DE;0</span>
+    <span class="hljs-keyword">if</span> theBit&lt;<span class="hljs-number">64</span> {
+        result := span.freeindex + theBit <span class="hljs-comment">//&#x9884;&#x8BA1;&#x53EF;&#x5206;&#x914D;&#x7684;object&#x7684;&#x4F4D;&#x7F6E;</span>
+        <span class="hljs-keyword">if</span> result &lt; span.nelems {
+            newFreeindex = result + <span class="hljs-number">1</span> 
+            <span class="hljs-keyword">if</span> newFreeindex % <span class="hljs-number">64</span> == <span class="hljs-number">0</span> &amp;&amp; newFreeindex != span.nelems{
+                <span class="hljs-comment">//&#x5982;&#x679C;newFreeindex&#x662F;64&#x7684;&#x500D;&#x6570;&#xFF0C;&#x5219;&#x53EA;&#x53EF;&#x80FD;&#x53EA;&#x5269;&#x6700;&#x540E;&#x4E00;&#x4E2A;object&#x53EF;&#x4EE5;&#x5206;&#x914D;&#xFF0C;&#x5426;&#x5219;&#x5206;&#x914D;&#x5931;&#x8D25;</span>
+                <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>
+            }
+            span.allocCache &gt;&gt;= <span class="hljs-keyword">uint</span>(theBit+<span class="hljs-number">1</span>)<span class="hljs-comment">//&#x66F4;&#x65B0;allocCache,&#x5982;&#x679C;&#x5206;&#x914D;&#x6210;&#x529F;&#xFF0C;&#x7B49;&#x540C;&#x4E8E;&#x53F3;&#x79FB;&#x4E00;&#x4F4D;</span>
+            span.freeindex = newFreeindex
+            span.allocCount++
+            <span class="hljs-keyword">return</span> gclinkptr(result*span.elemsize+span.base()) <span class="hljs-comment">//&#x8FD4;&#x56DE;&#x5206;&#x914D;&#x7684;object&#x7684;&#x6307;&#x9488;</span>
+        }
+        <span class="hljs-comment">//&#x4F4D;&#x7F6E;&#x8D85;&#x51FA;span&#x4E2D;object&#x7684;&#x4E2A;&#x6570;&#xFF0C;&#x5FEB;&#x901F;&#x5206;&#x914D;&#x5931;&#x8D25;</span>
+    }
+
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span> <span class="hljs-comment">//&#x5FEB;&#x901F;&#x5206;&#x914D;&#x5931;&#x8D25;</span>
+}
+</code></pre>
+<h4 id="mcachenextfree-&#x903B;&#x8F91;">mcache.nextFree &#x903B;&#x8F91;</h4>
+<p>nextFreeFast&#x5206;&#x914D;&#x5931;&#x8D25;&#xFF0C;&#x5373;&#x5F53;&#x524D;span&#x7684;allocCache&#x4E0A;&#x5206;&#x914D;&#x5931;&#x8D25;&#x65F6;&#x8C03;&#x7528;&#x6B64;&#x65B9;&#x6CD5;&#xFF0C;&#x6B64;&#x65B9;&#x6CD5;&#x5728;&#x5206;&#x914D;&#x65F6;&#x4F1A;&#x6839;&#x636E;&#x5206;&#x914D;&#x60C5;&#x51B5;&#x91CD;&#x73B0;&#x586B;&#x5145;&#x53EF;&#x5206;&#x914D;span&#x7684;allocCache&#xFF0C;&#x751A;&#x81F3;&#x7533;&#x8BF7;&#x65B0;&#x7684;span&#xFF0C;&#x6B64;&#x65B9;&#x6CD5;&#x7406;&#x8BBA;&#x4E0A;&#x4E00;&#x5B9A;&#x4F1A;&#x6210;&#x529F;</p>
+<pre><code class="lang-Go"><span class="hljs-keyword">func</span> (*mcache) nextFree(spanClass) (v gclinkptr, resultSpan *mspan, shouldhelpgc <span class="hljs-keyword">bool</span>) {
+    shouldhelpgc = <span class="hljs-literal">false</span>
+    s := mcache.alloc[spanClass] <span class="hljs-comment">//&#x83B7;&#x53D6;mcache&#x4E2D;spanClass&#x5BF9;&#x5E94;&#x7684;&#x53EF;&#x5206;&#x914D;&#x7684;span</span>
+    freeindex := s.nextFreeIndex() <span class="hljs-comment">//&#x5728;&#x5F53;&#x524D;span&#x4E2D;&#x627E;&#x5230;&#x53EF;&#x5206;&#x914D;&#x7684;object&#x7684;&#x4F4D;&#x7F6E;</span>
+    <span class="hljs-keyword">if</span> freeindex == s.nelems{
+        <span class="hljs-comment">//&#x5F53;&#x524D;span&#x5DF2;&#x6EE1;</span>
+        mcache.refill()<span class="hljs-comment">//&#x91CD;&#x65B0;&#x7533;&#x8BF7;&#x65B0;&#x7684;span</span>
+        shouldhelpgc = <span class="hljs-literal">true</span> <span class="hljs-comment">//&#x6807;&#x8BB0;&#x5F53;&#x524D;&#x5206;&#x914D;&#x662F;&#x4E00;&#x6B21;&#x91CD;&#x91CF;&#x7EA7;&#x5206;&#x914D;</span>
+        s := mcache.alloc[spanClass] <span class="hljs-comment">//&#x91CD;&#x65B0;&#x83B7;&#x53D6;&#x53EF;&#x4EE5;&#x5206;&#x914D;&#x7684;span</span>
+        freeindex := s.nextFreeIndex() <span class="hljs-comment">//&#x83B7;&#x53D6;&#x65B0;&#x7684;span&#x4E0A;&#x53EF;&#x4EE5;&#x5206;&#x914D;&#x7684;object&#x7684;&#x4F4D;&#x7F6E;</span>
+    }
+    v = gclinkptr(freeindex*s.elemsize+s.base()) <span class="hljs-comment">//&#x83B7;&#x53D6;&#x5206;&#x914D;&#x7684;object&#x7684;&#x6307;&#x9488;</span>
+    <span class="hljs-keyword">return</span>
+}
+</code></pre>
+<h4 id="mcachenextfreeindex&#x903B;&#x8F91;">mcache.nextFreeIndex()&#x903B;&#x8F91;</h4>
+<p>&#x4ECE;span.freeindex&#x67E5;&#x8BE2;&#x4E0B;&#x4E00;&#x4E2A;&#x53EF;&#x5206;&#x914D;&#x7684;object&#x7684;&#x4F4D;&#x7F6E;&#xFF0C;&#x5E76;&#x8FD4;&#x56DE;&#xFF1B;&#x5982;&#x679C;&#x8FD4;&#x56DE;&#x7ED3;&#x679C;==span.nelems&#xFF0C;&#x8868;&#x793A;&#x5F53;&#x524D;span&#x5DF2;&#x7ECF;&#x6CA1;&#x6709;&#x53EF;&#x5206;&#x914D;&#x7684;&#x7A7A;&#x95F4;</p>
+<pre><code class="lang-Go"><span class="hljs-keyword">func</span> (s *mspan) nextFreeIndex() <span class="hljs-keyword">uintptr</span> {
+    <span class="hljs-keyword">if</span> s.freeindex ==  s.nelems {
+        <span class="hljs-keyword">return</span> s.freeindex <span class="hljs-comment">//&#x5F53;&#x524D;span&#x5DF2;&#x6EE1;&#xFF0C;&#x6CA1;&#x6709;&#x53EF;&#x5206;&#x914D;&#x7684;&#x7A7A;&#x95F4;</span>
+    }
+
+    bitIndex := Ctz64(s.allocCache) <span class="hljs-comment">//&#x8FD4;&#x56DE;&#x4ECE;&#x4F4E;&#x4F4D;&#x5F00;&#x59CB;&#x8FDE;&#x7EED;0&#x7684;&#x4E2A;&#x6570;</span>
+    <span class="hljs-keyword">for</span> bitIndex == <span class="hljs-number">64</span> {
+        <span class="hljs-comment">//&#x5F53;&#x524D;allocCache&#x5168;&#x90E8;&#x5DF2;&#x5206;&#x914D;&#xFF0C;&#x8C03;&#x6574;s.freeindex &#x548C;s.allocCache,&#x76F4;&#x5230;&#x627E;&#x5230;&#x4E00;&#x4E2A;&#x6709;&#x7A7A;&#x95F2;&#x7A7A;&#x95F4;&#x7684;&#xFF0C;&#x6216;&#x8005;return s.nelems&#xFF0C;&#x8868;&#x793A;&#x5F53;&#x524D;span&#x5DF2;&#x6EE1;</span>
+        s.freeindex = &#xFF08;s.freeindex+<span class="hljs-number">64</span>&#xFF09;&amp;^(<span class="hljs-number">64</span><span class="hljs-number">-1</span>) <span class="hljs-comment">//move freeindex</span>
+        <span class="hljs-keyword">if</span> s.freeindex &gt;= s.nelems {
+            <span class="hljs-keyword">return</span> s.nelems <span class="hljs-comment">//&#x5F53;&#x524D;span&#x5DF2;&#x6EE1;</span>
+        }
+        s.refillAllocCache() <span class="hljs-comment">//&#x91CD;&#x65B0;&#x586B;&#x5145;s.alloCache&#xFF0C;&#x57FA;&#x672C;&#x903B;&#x8F91;&#x662F;&#x4ECE;allocBits&#x4E2D;&#x53D6;&#x51FA;&#x4ECE;freeindex&#x5BF9;&#x5E94;&#x7684;&#x5B57;&#x8282;&#x5F00;&#x59CB;&#x7684;&#x540E;&#x9762;8&#x4E2A;&#x5B57;&#x8282;&#x7684;&#x503C;&#xFF0C;&#x5E76;&#x53D6;&#x53CD;^</span>
+        bitIndex = Ctz64(s.allocCache) 
+    }
+    result := s.freeindex + <span class="hljs-keyword">uintptr</span>(bitIndex) <span class="hljs-comment">//&#x8BA1;&#x7B97;&#x53EF;&#x5206;&#x914D;&#x7684;object&#x5728;s.allocBits&#x4E2D;&#x7684;&#x4F4D;&#x7F6E;</span>
+    <span class="hljs-keyword">if</span> result &gt;= s.nelems {
+        <span class="hljs-keyword">return</span> s.nelems <span class="hljs-comment">//&#x5F53;&#x524D;span&#x5DF2;&#x6EE1;</span>
+    }
+    s.allocCache &gt;&gt;= <span class="hljs-keyword">uint</span>(bitIndex+<span class="hljs-number">1</span>) <span class="hljs-comment">//&#x5C06;allocCache&#x4E2D;&#x5BF9;&#x5E94;&#x7684;&#x4F4D;&#x7F6E;&#x6807;&#x8BB0;&#x4E3A;&#x5DF2;&#x5206;&#x914D;</span>
+    s.freeindex = result + <span class="hljs-number">1</span> <span class="hljs-comment">//&#x91CD;&#x65B0;&#x8BA1;&#x7B97;span&#x4E2D;freeindex&#x7684;&#x4F4D;&#x7F6E;&#xFF0C;&#x6307;&#x5411;&#x4E0B;&#x4E00;&#x4E2A;&#x53EF;&#x5206;&#x914D;&#x7684;object</span>
+
+    <span class="hljs-keyword">if</span> s.freeindex % <span class="hljs-number">64</span> == <span class="hljs-number">0</span> &amp;&amp; s.freeindex != s.nelems {
+        <span class="hljs-comment">//&#x5F53;&#x524D;freeindex&#x5DF2;&#x7ECF;&#x79FB;&#x52A8;&#x5230;&#x4E0B;&#x4E00;&#x4E2A;allocCache&#x7684;&#x9996;&#x4F4D;&#xFF0C;&#x586B;&#x5145;&#x4E0B;&#x4E00;&#x4E2A;allocCache</span>
+        s.refillAllocCache()
+    }
+    <span class="hljs-keyword">return</span> result
+}
+</code></pre>
+<h4 id="mcacherefill&#x903B;&#x8F91;">mcache.refill&#x903B;&#x8F91;</h4>
+<p>mcache&#x4E2D;&#x6CA1;&#x6709;&#x53EF;&#x5206;&#x914D;&#x7684;span&#xFF08;&#x6240;&#x6709;span&#x6CA1;&#x6709;&#x53EF;&#x5206;&#x914D;&#x7684;object&#xFF09;&#xFF0C;&#x7533;&#x8BF7;&#x65B0;&#x7684;span</p>
+<pre><code class="lang-Go"><span class="hljs-keyword">func</span> (c *mcache) refill(spanClass) {
+    s := c.alloc[spanClass] <span class="hljs-comment">//&#x83B7;&#x53D6;mcache&#x7684;&#x5F53;&#x524D;span</span>
+    <span class="hljs-keyword">if</span> s.allocCount != s.nelems {
+        throw(error) <span class="hljs-comment">//&#x5982;&#x679C;&#x5F53;&#x524D;span&#x672A;&#x6EE1;&#xFF0C;&#x62A5;&#x9519;</span>
+    }
+    atomic.Store(s.sweepgen, mheap_.sweepgen) <span class="hljs-comment">//&#x66F4;&#x65B0;&#x5F53;&#x524D;span&#x7684;sweep&#xFF0C;&#x8868;&#x793A;&#x6B64;span&#x4E0D;&#x518D;&#x88AB;&#x7F13;&#x5B58;</span>
+    <span class="hljs-comment">//spanClass&#x5BF9;&#x5E94;&#x7684;mcentral&#x4E2D;&#x83B7;&#x53D6;&#x4E00;&#x4E2A;&#x53EF;&#x4EE5;&#x5206;&#x914D;&#x7684;&#x65B0;span</span>
+    <span class="hljs-comment">//&#x6B64;&#x65F6;s&#x4E0D;&#x518D;&#x6307;&#x5411;mcache&#x7684;&#x5F53;&#x524D;span&#xFF0C;&#x4E5F;&#x610F;&#x5473;&#x7740;&#x5C06;&#x8FD9;&#x4E2A;&#x5DF2;&#x7ECF;&#x6CA1;&#x6709;&#x53EF;&#x7528;&#x7A7A;&#x95F4;&#x7684;span&#x8FD8;&#x7ED9;&#x4E86;mcentral</span>
+    s = mheap_.central[spanClass].mcentral.cacheSpan()
+    <span class="hljs-keyword">if</span> s == <span class="hljs-literal">nil</span> { <span class="hljs-comment">//&#x5982;&#x679C;mcentral&#x6CA1;&#x6709;&#x8FD4;&#x56DE;&#x53EF;&#x7528;&#x7684;span&#xFF0C;&#x8868;&#x793A;&#x5185;&#x5B58;&#x5DF2;&#x4E0D;&#x8DB3;&#xFF0C;&#x62A5;&#x9519;</span>
+        throw(<span class="hljs-string">&quot;out of memory&quot;</span>)
+    }
+    s.sweepgen = mheap_.sweepgen+<span class="hljs-number">3</span> <span class="hljs-comment">//&#x5C06;&#x65B0;&#x5206;&#x914D;&#x7684;span&#x6807;&#x8BB0;&#x4E3A;&#x5DF2;&#x7ECF;&#x88AB;&#x7F13;&#x5B58;&#xFF0C;&#x963B;&#x6B62;&#x4E0B;&#x6B21;sweep&#x5468;&#x671F;&#x5230;&#x65F6;sweep&#x8FD9;&#x4E2A;span</span>
+    c.alloc[spaClass] = s <span class="hljs-comment">//&#x5C06;&#x5206;&#x914D;&#x5230;&#x7684;&#x65B0;span&#x7F13;&#x5B58;&#x5230;mcache&#xFF1B;&#x6240;&#x4EE5;&#xFF0C;&#x901A;&#x5E38;mcache&#x7684;alloc&#x4E2D;&#x6BCF;&#x4E2A;spanClass&#x5BF9;&#x5E94;&#x7684;span&#x6700;&#x591A;&#x53EA;&#x6709;&#x4E00;&#x4E2A;</span>
+}
+</code></pre>
+<h4 id="mcentralcachespan&#x903B;&#x8F91;">mcentral.cacheSpan&#x903B;&#x8F91;</h4>
+<p>&#x4ECE;central&#x4E2D;&#x5206;&#x914D;&#x65B0;&#x7684;span</p>
+<pre><code class="lang-Go"><span class="hljs-keyword">func</span> (c *mcentral) cacheSpan() *mspan {
+    spanBytes := <span class="hljs-keyword">uintptr</span>(class_to_allocpages[c.spanclass.sizeClass()]) * _PageSize <span class="hljs-comment">//&#x8BA1;&#x7B97;&#x8981;&#x5206;&#x914D;&#x7684;span&#x7684;&#x5B57;&#x8282;&#x6570;</span>
+    lock(c.lock)  <span class="hljs-comment">//&#x52A0;&#x9501;</span>
+
+retry:
+    <span class="hljs-keyword">var</span> s *mspan
+    <span class="hljs-keyword">for</span> s=c.nonempty.first; s!= <span class="hljs-literal">nil</span>; s=s.next{
+        <span class="hljs-keyword">if</span> s.sweepgen == spanNeedSweeping {
+            s.sweepgen = spanHasSweept <span class="hljs-comment">//&#x5C06;span&#x7F6E;&#x4E3A;&#x5DF2;&#x7ECF;sweept,&#x539F;&#x5B50;&#x64CD;&#x4F5C;</span>
+            c.nonempty.remove(s) <span class="hljs-comment">//&#x4ECE;mcentral&#x7684;nonempty&#x5217;&#x8868;&#x4E2D;&#x6458;&#x9664;&#x8BE5;span</span>
+            c.empty.insertBack(s) <span class="hljs-comment">//&#x5C06;span&#x63D2;&#x5165;mcentral&#x7684;empty&#x5217;&#x8868;&#x4E2D;</span>
+            unlock(c.lock) <span class="hljs-comment">//&#x89E3;&#x9501;</span>
+            s.sweep(<span class="hljs-literal">true</span>) <span class="hljs-comment">//&#x6E05;&#x7406;&#x8BE5;span</span>
+            <span class="hljs-keyword">goto</span> havespan
+        }
+        <span class="hljs-keyword">if</span> s.sweepgen == spanHasSweept { <span class="hljs-comment">//&#x8BE5;span&#x5DF2;&#x7ECF;&#x88AB;sweep&#xFF0C; &#x8DF3;&#x8FC7;</span>
+            <span class="hljs-keyword">continue</span>
+        }
+        <span class="hljs-comment">//&#x8D70;&#x5230;&#x8FD9;&#xFF0C;&#x5F53;&#x524D;span&#x53EF;&#x4EE5;&#x5206;&#x914D;&#x5E76;&#x4E14;&#x4E0D;&#x9700;&#x8981;sweep&#xFF0C;&#x5206;&#x914D;&#x8BE5;span</span>
+        c.nonempty.remove(s) <span class="hljs-comment">//&#x4ECE;mcentral&#x7684;nonempty&#x5217;&#x8868;&#x4E2D;&#x6458;&#x9664;&#x8BE5;span</span>
+        c.empty.insertBack(s) <span class="hljs-comment">//&#x5C06;span&#x63D2;&#x5165;mcentral&#x7684;empty&#x5217;&#x8868;&#x4E2D;</span>
+        unlock(c.lock) <span class="hljs-comment">//&#x89E3;&#x9501;</span>
+        <span class="hljs-keyword">goto</span> havespan
+    }
+
+    <span class="hljs-comment">//&#x5230;&#x8FD9;&#xFF0C;nonempty&#x4E2D;&#x6CA1;&#x6709;&#x53EF;&#x4EE5;&#x5206;&#x914D;&#x7684;span&#xFF0C;&#x4FBF;&#x5229;empty span&#x5217;&#x8868;&#xFF0C;&#x770B;&#x80FD;&#x5426;&#x627E;&#x5230;&#x4E00;&#x4E2A;&#x53EF;&#x4EE5;&#x6E05;&#x9664;&#x4E00;&#x4E9B;&#x7A7A;&#x95F4;&#x7684;span</span>
+    <span class="hljs-keyword">for</span> s=c.empty.first; s != <span class="hljs-literal">nil</span>; s=s.next {
+        <span class="hljs-keyword">if</span> s.sweepgen==spanNeedSweeping {
+            s.sweepgen = spanHasSweept <span class="hljs-comment">//&#x5C06;span&#x7F6E;&#x4E3A;&#x5DF2;&#x7ECF;sweept&#xFF0C;&#x539F;&#x5B50;&#x64CD;&#x4F5C;</span>
+            <span class="hljs-comment">//&#x5F97;&#x5230;&#x4E00;&#x4E2A;&#x9700;&#x8981;&#x6E05;&#x7406;&#x7684;span&#xFF0C;&#x6E05;&#x7406;&#x5B83;&#x770B;&#x80FD;&#x5426;&#x91CA;&#x653E;&#x4E00;&#x4E9B;&#x7A7A;&#x95F4;</span>
+            c.empty.remove(s) <span class="hljs-comment">//&#x5C06;&#x8BE5;span&#x67E5;&#x5230;&#x961F;&#x5C3E;</span>
+            c.empty.insertBack(s)
+            unlock(c.lock)
+            s.sweep(<span class="hljs-literal">true</span>)<span class="hljs-comment">//&#x6E05;&#x7406;&#x8BE5;span</span>
+            freeindex := s.nextFreeIndex() <span class="hljs-comment">//&#x627E;&#x5230;&#x4E00;&#x4E2A;&#x53EF;&#x4EE5;&#x5206;&#x914D;&#x7684;object&#x7684;&#x4F4D;&#x7F6E;</span>
+            <span class="hljs-keyword">if</span> freeindex != s.nelems { 
+                <span class="hljs-comment">//&#x8BE5;&#x4F4D;&#x7F6E;&#x7684;object&#x53EF;&#x4EE5;&#x5206;&#x914D;&#xFF0C;&#x8FD4;&#x56DE;&#x8BE5;span</span>
+                s.freeindex = freeindex
+                <span class="hljs-keyword">goto</span> havespan
+            }       
+            lock(c.lock)
+            <span class="hljs-keyword">goto</span> retry     
+        }
+        <span class="hljs-keyword">if</span> s.sweepgen == spanHasSweept {
+            <span class="hljs-keyword">continue</span>
+        }
+        <span class="hljs-comment">//&#x5230;&#x8FD9;&#xFF0C;s&#x540E;&#x9762;&#x7684;span&#x8981;&#x4E48;&#x662F;&#x6B63;&#x5728;sweeping&#x7684;&#xFF0C;&#x8981;&#x4E48;&#x662F;&#x5DF2;&#x7ECF;sweept&#x7684;&#xFF0C;mcentral&#x5F53;&#x524D;&#x4E0D;&#x80FD;&#x6EE1;&#x8DB3;&#x5206;&#x914D;&#x8981;&#x6C42;&#xFF0C;&#x5FAA;&#x73AF;&#x9000;&#x51FA;</span>
+        <span class="hljs-keyword">break</span>
+    }
+    unlock(c.lock)
+    s = c.grow() <span class="hljs-comment">//&#x4ECE;heap&#x7533;&#x8BF7;&#x65B0;&#x7684;span&#x8865;&#x5145;&#x8BE5;mcentral</span>
+    <span class="hljs-keyword">if</span> s == <span class="hljs-literal">nil</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span> <span class="hljs-comment">//&#x5206;&#x914D;&#x5931;&#x8D25;</span>
+    }
+    <span class="hljs-comment">//&#x4ECE;heap&#x5F97;&#x5230;&#x65B0;&#x7684;span&#xFF0C;&#x63D2;&#x5165;mcentral&#x7684;empty&#x5217;&#x8868;&#x4E2D;</span>
+    lock(c.lock)
+    c.empty.insertBack(s)
+    unlock(c.lock)
+
+havespan: <span class="hljs-comment">//&#x5230;&#x8FD9;&#xFF0C;s&#x662F;&#x4E00;&#x4E2A;&#x88AB;&#x63D2;&#x5165;&#x5230;empty&#x5217;&#x8868;&#x5C3E;&#x90E8;&#x7684;&#x6709;&#x5269;&#x4F59;&#x7A7A;&#x95F4;&#x7684;span</span>
+    <span class="hljs-comment">//&#x6839;&#x636E;span&#x7684;freeindex&#x91CD;&#x7F6E;&#x8BE5;span&#x7684;allocCache</span>
+    freeByteBase := s.freeindex &amp;^ (<span class="hljs-number">64</span><span class="hljs-number">-1</span>)
+    whichByte := freeByteBase / <span class="hljs-number">8</span>
+    s.refillAllocCache(whichByte) <span class="hljs-comment">//&#x521D;&#x59CB;&#x5316;s&#x7684;allocCache</span>
+    s.allocCache &gt;&gt;= s.freeindex % <span class="hljs-number">64</span> <span class="hljs-comment">//&#x8C03;&#x6574;allocCache&#xFF0C;&#x4F7F;allocCache&#x7684;&#x6700;&#x4F4E;&#x4F4D;&#x5BF9;&#x9F50;freeindex</span>
+    <span class="hljs-keyword">return</span> s
+}
+</code></pre>
+<h3 id="&#x53C2;&#x8003;">&#x53C2;&#x8003;</h3>
+<ul>
+<li><a href="http://skoo.me/go/2013/10/08/go-memory-manage-system-design" target="_blank">Go&#x8BED;&#x8A00;&#x5185;&#x5B58;&#x5206;&#x914D;&#x5668;&#x8BBE;&#x8BA1;</a></li>
+<li><a href="https://zhuanlan.zhihu.com/p/29216091" target="_blank">&#x56FE;&#x89E3;TCMalloc</a></li>
+<li><a href="https://yq.aliyun.com/articles/652551" target="_blank">&#x7B80;&#x5355;&#x6613;&#x61C2;&#x7684; Go &#x5185;&#x5B58;&#x5206;&#x914D;&#x539F;&#x7406;&#x89E3;&#x8BFB;</a></li>
+<li><a href="https://www.infoq.cn/article/IEhRLwmmIM7-11RYaLHR" target="_blank">&#x56FE;&#x89E3; Go &#x5185;&#x5B58;&#x5206;&#x914D;&#x5668;</a></li>
+<li><a href="https://studygolang.com/articles/5790" target="_blank">golang&#x5185;&#x5B58;&#x5206;&#x914D;</a></li>
+</ul>
+
+                                
+                                </section>
+                            
+    </div>
+    <div class="search-results">
+        <div class="has-results">
+            
+            <h1 class="search-results-title"><span class='search-results-count'></span> results matching "<span class='search-query'></span>"</h1>
+            <ul class="search-results-list"></ul>
+            
+        </div>
+        <div class="no-results">
+            
+            <h1 class="search-results-title">No results matching "<span class='search-query'></span>"</h1>
+            
+        </div>
+    </div>
+</div>
+
+                        </div>
+                    </div>
+                
+            </div>
+
+            
+                
+                <a href="CHAPTER.md" class="navigation navigation-prev " aria-label="Previous page: Golang runtime分析">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+                
+                
+                <a href="goroutine-schedule.html" class="navigation navigation-next " aria-label="Next page: Goroutine调度">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+                
+            
+        
+    </div>
+
+    <script>
+        var gitbook = gitbook || [];
+        gitbook.push(function() {
+            gitbook.page.hasChanged({"page":{"title":"内存分配","level":"1.1.1.1","depth":3,"next":{"title":"Goroutine调度","level":"1.1.1.2","depth":3,"path":"docs/runtime/goroutine-schedule.md","ref":"./docs/runtime/goroutine-schedule.md","articles":[]},"previous":{"title":"Golang runtime分析","level":"1.1.1","depth":2,"path":"docs/runtime/CHAPTER.md","ref":"./docs/runtime/CHAPTER.md","articles":[{"title":"内存分配","level":"1.1.1.1","depth":3,"path":"docs/runtime/memory-alloc.md","ref":"./docs/runtime/memory-alloc.md","articles":[]},{"title":"Goroutine调度","level":"1.1.1.2","depth":3,"path":"docs/runtime/goroutine-schedule.md","ref":"./docs/runtime/goroutine-schedule.md","articles":[]},{"title":"内存逃逸","level":"1.1.1.3","depth":3,"path":"docs/runtime/memory-escape.md","ref":"./docs/runtime/memory-escape.md","articles":[]}]},"dir":"ltr"},"config":{"plugins":["search","-sharing","livereload"],"styles":{"website":"styles/website.css"},"pluginsConfig":{"search":{},"livereload":{},"highlight":{},"lunr":{"maxIndexSize":1000000,"ignoreSpecialCharacters":false},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"theme":"default","author":"helight","pdf":{"pageNumbers":true,"fontSize":12,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"variables":{},"title":"Golang学习笔记","language":"zh-hans","gitbook":"*","description":" 记录学习Go语言的点滴"},"file":{"path":"docs/runtime/memory-alloc.md","mtime":"2019-04-25T10:15:02.702Z","type":"markdown"},"gitbook":{"version":"3.2.3","time":"2019-04-25T11:01:14.489Z"},"basePath":"../..","book":{"language":""}});
+        });
+    </script>
+</div>
+
+        
+    <script src="../../gitbook/gitbook.js"></script>
+    <script src="../../gitbook/theme.js"></script>
+    
+        
+        <script src="../../gitbook/gitbook-plugin-search/search-engine.js"></script>
+        
+    
+        
+        <script src="../../gitbook/gitbook-plugin-search/search.js"></script>
+        
+    
+        
+        <script src="../../gitbook/gitbook-plugin-livereload/plugin.js"></script>
+        
+    
+        
+        <script src="../../gitbook/gitbook-plugin-lunr/lunr.min.js"></script>
+        
+    
+        
+        <script src="../../gitbook/gitbook-plugin-lunr/search-lunr.js"></script>
+        
+    
+        
+        <script src="../../gitbook/gitbook-plugin-fontsettings/fontsettings.js"></script>
+        
+    
+
+    </body>
+</html>
+
