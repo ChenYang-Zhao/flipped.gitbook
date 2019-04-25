@@ -2,9 +2,38 @@
 
 
 
+### 数据模型
 
 
-### Object alloc pseudo code
+#### mspan
+
+```Go
+type gcBits uint8
+
+type mspan struct {
+    next *mspan
+    prev *mspan
+    list *mspanList
+    startAddr uintptr
+    npages uintptr
+    //介于0和nelems之间的值，标识下次分配object时扫描allocBits下标的开始位置；如果freeindex==nelems, 表示当前span没有可分配的object
+    //每次分配成功，会修改该值
+    freeindex uintptr 
+    //allocBits从freeindex处开始的缓存，它的最低位与freeindex所在的位置对齐; 
+    //并且，`0`表示已分配，`1`表示未分配；比如，如果8位，已分配两个，则allocCache当前位`00111111`
+    //如果再分配一个，变为`00011111`
+    allocCache uint64 
+    nelems uintptr // 当前span中的object数量
+    allocBits *gcBits //uint8类型的数组，数组中的每个值表示多个位置的object的分配情况
+    gcmarkBits *gcBits
+    elemsize uintptr //span中可分配的object的size
+    allocCount uint16 //span中已分配的object的个数
+} 
+```
+
+### 流程
+
+#### 对象分配逻辑
 
 ```Go
 func mallocgc(type, size) pointer {
@@ -53,6 +82,38 @@ func mallocgc(type, size) pointer {
 }
 
 ```
+
+#### nextFreeFast 逻辑
+
+```Go
+//return the next free object if one is quickly available
+//otherwise, return 0
+func nextFreeFast(*span) gclinkptr {
+    theBit := Ctz64(span.allocCache) //从地位往高位查找allocCache中从低位开始0的个数, 如果allocCache中仍然有obejct可以分配，此方法一定返回0
+    if theBit<64 {
+        result := span.freeindex + theBit //预计可分配的object的位置
+        if result < span.nelems {
+            newFreeindex = result + 1 
+            if newFreeindex % 64 == 0 && newFreeindex != span.nelems{
+                //如果newFreeindex是64的倍数，则只可能只剩最后一个object可以分配，否则分配失败
+                return 0
+            }
+            span.allocCache >>= uint(theBit+1)//更新allocCache,如果分配成功，等同于右移一位
+            span.freeindex = newFreeindex
+            span.allocCount++
+            return gclinkptr(result*span.elemsize+span.base()) //返回分配的object的指针
+        }
+        //位置超出span中object的个数，快速分配失败
+    }
+
+    return 0 //快速分配失败
+}
+
+```
+
+
+
+
 
 ### 参考
 
