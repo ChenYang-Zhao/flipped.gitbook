@@ -31,6 +31,19 @@ type mspan struct {
 } 
 ```
 
+#### mcentral
+
+```Go
+type mcentral struct {
+    lock mutex //锁，由于mcentral对象是所有goroutine共享的，分配必须加锁
+    spanclass spanClass //此mcentral对应的class对象，每个class对应一个分配的object的大小
+    nonempty mSpanList  //还有可分配空间的span列表
+    empty mSpanList //没有可分配空间的span列表
+    nmalloc uint64 // 从次mcentral分配出去的object的累计个数，假设所有已被mcache缓存的span中所有的object都已分配
+}
+```
+
+
 ### 流程
 
 #### 对象分配逻辑
@@ -192,6 +205,81 @@ func (c *mcache) refill(spanClass) {
 }
 
 ```
+
+#### mcentral.cacheSpan逻辑
+
+从central中分配新的span
+
+```Go
+func (c *mcentral) cacheSpan() *mspan {
+    spanBytes := uintptr(class_to_allocpages[c.spanclass.sizeClass()]) * _PageSize //计算要分配的span的字节数
+    lock(c.lock)  //加锁
+
+retry:
+    var s *mspan
+    for s=c.nonempty.first; s!= nil; s=s.next{
+        if s.sweepgen == spanNeedSweeping {
+            s.sweepgen = spanHasSweept //将span置为已经sweept,原子操作
+            c.nonempty.remove(s) //从mcentral的nonempty列表中摘除该span
+            c.empty.insertBack(s) //将span插入mcentral的empty列表中
+            unlock(c.lock) //解锁
+            s.sweep(true) //清理该span
+            goto havespan
+        }
+        if s.sweepgen == spanHasSweept { //该span已经被sweep， 跳过
+            continue
+        }
+        //走到这，当前span可以分配并且不需要sweep，分配该span
+        c.nonempty.remove(s) //从mcentral的nonempty列表中摘除该span
+        c.empty.insertBack(s) //将span插入mcentral的empty列表中
+        unlock(c.lock) //解锁
+        goto havespan
+    }
+
+    //到这，nonempty中没有可以分配的span，便利empty span列表，看能否找到一个可以清除一些空间的span
+    for s=c.empty.first; s != nil; s=s.next {
+        if s.sweepgen==spanNeedSweeping {
+            s.sweepgen = spanHasSweept //将span置为已经sweept，原子操作
+            //得到一个需要清理的span，清理它看能否释放一些空间
+            c.empty.remove(s) //将该span查到队尾
+            c.empty.insertBack(s)
+            unlock(c.lock)
+            s.sweep(true)//清理该span
+            freeindex := s.nextFreeIndex() //找到一个可以分配的object的位置
+            if freeindex != s.nelems { 
+                //该位置的object可以分配，返回该span
+                s.freeindex = freeindex
+                goto havespan
+            }       
+            lock(c.lock)
+            goto retry     
+        }
+        if s.sweepgen == spanHasSweept {
+            continue
+        }
+        //到这，s后面的span要么是正在sweeping的，要么是已经sweept的，mcentral当前不能满足分配要求，循环退出
+        break
+    }
+    unlock(c.lock)
+    s = c.grow() //从heap申请新的span补充该mcentral
+    if s == nil {
+        return nil //分配失败
+    }
+    //从heap得到新的span，插入mcentral的empty列表中
+    lock(c.lock)
+    c.empty.insertBack(s)
+    unlock(c.lock)
+
+havespan: //到这，s是一个被插入到empty列表尾部的有剩余空间的span
+    //根据span的freeindex重置该span的allocCache
+    freeByteBase := s.freeindex &^ (64-1)
+    whichByte := freeByteBase / 8
+    s.refillAllocCache(whichByte) //初始化s的allocCache
+    s.allocCache >>= s.freeindex % 64 //调整allocCache，使allocCache的最低位对齐freeindex
+    return s
+}
+```
+
 
 
 ### 参考
