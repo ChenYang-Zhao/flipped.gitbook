@@ -170,6 +170,29 @@ func (s *mspan) nextFreeIndex() uintptr {
 
 ```
 
+#### mcache.refill逻辑
+
+mcache中没有可分配的span（所有span没有可分配的object），申请新的span
+
+```Go
+func (c *mcache) refill(spanClass) {
+    s := c.alloc[spanClass] //获取mcache的当前span
+    if s.allocCount != s.nelems {
+        throw(error) //如果当前span未满，报错
+    }
+    atomic.Store(s.sweepgen, mheap_.sweepgen) //更新当前span的sweep，表示此span不再被缓存
+    //spanClass对应的mcentral中获取一个可以分配的新span
+    //此时s不再指向mcache的当前span，也意味着将这个已经没有可用空间的span还给了mcentral
+    s = mheap_.central[spanClass].mcentral.cacheSpan()
+    if s == nil { //如果mcentral没有返回可用的span，表示内存已不足，报错
+        throw("out of memory")
+    }
+    s.sweepgen = mheap_.sweepgen+3 //将新分配的span标记为已经被缓存，阻止下次sweep周期到时sweep这个span
+    c.alloc[spaClass] = s //将分配到的新span缓存到mcache；所以，通常mcache的alloc中每个spanClass对应的span最多只有一个
+}
+
+```
+
 
 ### 参考
 
