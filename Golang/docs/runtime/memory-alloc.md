@@ -57,13 +57,24 @@ func mallocgc(type, size) pointer {
 
     if size <= maxSmallSize {
         if size <= maxTinySize && noscan {
-            //tiny object 分配
-            if c.tinyBlock != nil{
-                //直接在cache的tiny block上分配
+            //tiny object 分配器
+            off := c.tinyOffset //计算要分配的地址在c.tiny中的offset
+            if size & 7 == 0 {
+                off = round(off, 8)
+            }else if size & 3 ==0 {
+                off = round(off, 4)
+            }else if size & 1 == 0 {
+                off = round(off, 2)
+            }
+            if size + off <= maxTinySize  &&  c.tinyBlock != nil{
+                //当前mcache中的tiny block 可以满足分配要求，直接分配
+                x := unsafe.Pointer(c.tiny+off) //要分配的object的指针
+                c.tinyOffset = size+off  // 重新设置tiny block的offset
                 m.mallocing = 0 //unlock
                 releasem(m) //释放M
                 return
             }
+            //当前mcache的tiny block为nil或者不能满足分配要求，申请新的tiny block，并分配
             span := c.alloc[tinySpanClass] //获取cache 上tiny class的头span指针
             v := nextFreeFast(span)// 快速查询，获取可以分配的object的位置
             if v == 0 {
@@ -71,6 +82,13 @@ func mallocgc(type, size) pointer {
                 v = c.nextFree(tinySpanClass)
             }
             x := unsafe.Pointer(v)
+            //更新mcache.tiny 及offset
+            if size < c.tinyOffset || c.tiny == nil {
+                c.tiny = uintptr(v)
+                c.tinyOffset = size
+            }
+
+            size = maxTinySize // 
         }else {
             //正常 small object 分配
             sizeClass := size_to_class[size]//根据object的size获取class
