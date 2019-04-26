@@ -43,6 +43,18 @@ type mcentral struct {
 }
 ```
 
+#### mcache
+
+```Go
+type mcache struct {
+    tiny uintptr // tiny block,用于分配小于16B 的tiny object
+    tinyOffset uintptr // 当前tiny中可分配的字节的起始位置
+    local_tintallocs uintptr // 已分配的tiny object的个数
+    alloc [numSpanClasses]*mspan // mcache缓存的span信息，numSpanClasses = 67 * 2
+} 
+
+```
+
 
 ### 流程
 
