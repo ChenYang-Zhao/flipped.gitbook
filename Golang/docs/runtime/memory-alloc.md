@@ -393,7 +393,37 @@ func (mheap) alloc_m(npage uintptr, spanclass spanClass, large bool) *mspan {
 
 //从heap中分配span，stat是heap目前正在使用的内存的字节数
 func (*mheap) allocSpanLocked(npages uintptr, stat *uint64) {
-    
+    var s *mspan
+    s = h.pickFreeSpan(npages) // 从heap 的free list中获得一个可以分配的span 
+    if s != nil {
+        goto haveSpan
+    }
+    //heap 的free list分配失败，增常heap的空间
+    if !h.grow(npages){
+        return nil
+    }
+    s = h.pickFreeSpan(npages)
+    if s != nil {
+        goto haveSpan
+    }
+    throw("heap alloc failed")
+
+haveSpan:
+    if s.npages > npages {
+        //将多余的内存还给heap
+        t := (*mspan)(h.spanalloc.alloc())
+        t.init(s.base()+npages<<_PageShift, s.npages-npages) //根据给定的npages和起始位置初始化span
+        s.npages = npages 
+        h.setSpan(t.base()-1, s)
+        h.setSpan(t.base(), t)
+        h.setSpan(t.base()+t.npages*pageSize-1, t)
+        s.state = mSpanManual
+        t.state = mSpanManual
+        h.freeSpanLocked(t, false, false, s.unusedsince)
+        s.state = mSpanFree
+    }
+    h.setSpans(s.base(), npages, s)
+    return s
 }
 
 ```
