@@ -68,7 +68,7 @@ func mallocgc(type, size) pointer {
     noscan := type == nil || (type.kind != pointerKind)
 
     if size <= maxSmallSize {
-        if size <= maxTinySize && noscan {
+        if size < maxTinySize && noscan {
             //tiny object 分配器
             off := c.tinyOffset //计算要分配的地址在c.tiny中的offset
             if size & 7 == 0 {
@@ -105,7 +105,8 @@ func mallocgc(type, size) pointer {
             //正常 small object 分配
             sizeClass := size_to_class[size]//根据object的size获取class
             size = class_to_size[sizeClass] //获取真实要分配的memory的大小，大于等于请求大小
-            span := c.alloc[sizeClass, noscan] //根据size class 和noscan参数获取cache中对应的可分配span的指针
+            spanClass := makeSpanClass(sizeClass, noscan) //更根据sizeClass和是否需要scan的参数，获取spanClass
+            span := c.alloc[spanClass] //根据spanClass获取cache中对应的可分配span的指针
             v := nextFreeFast(span)// 在spanClass对应的span列表的第一个span上快速找到可分配的object的位置
             if v == 0 {
                 v = nextFree(span)// 快速分配失败，常规分配到可用的object位置
