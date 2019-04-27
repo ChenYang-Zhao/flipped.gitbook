@@ -28,6 +28,7 @@ type mspan struct {
     gcmarkBits *gcBits
     elemsize uintptr //span中可分配的object的size
     allocCount uint16 //span中已分配的object的个数
+    limit // span中能够用于分配object的最后一个字节的位置，它后面的字节是span中的碎片
 } 
 ```
 
@@ -129,14 +130,15 @@ func mallocgc(type, size) pointer {
 
 #### nextFreeFast 逻辑
 
-在当前allocCache中分配
+在mspan的当前allocCache中分配，如果allocCache无法满足分配，本次分配失败
 
 ```Go
 //return the next free object if one is quickly available
 //otherwise, return 0
 func nextFreeFast(*span) gclinkptr {
-    theBit := Ctz64(span.allocCache) //从地位往高位查找allocCache中从低位开始0的个数, 如果allocCache中仍然有obejct可以分配，此方法一定返回0
-    if theBit<64 {
+    //从低位往高位查找allocCache中从低位开始0的个数, 如果allocCache中仍然有obejct可以分配，此方法一定返回0
+    theBit := Ctz64(span.allocCache) 
+    if theBit<64 { //表示allocCache中不全是0， 也就是仍然有空间可以分配，但是由于allocCache有可能超出nelems， 所以需要判断该位置是否合法
         result := span.freeindex + theBit //预计可分配的object的位置
         if result < span.nelems {
             newFreeindex = result + 1 
@@ -159,7 +161,7 @@ func nextFreeFast(*span) gclinkptr {
 
 #### mcache.nextFree 逻辑
 
-nextFreeFast分配失败，即当前span的allocCache上分配失败时调用此方法，此方法在分配时会根据分配情况重现填充可分配span的allocCache，甚至申请新的span，此方法理论上一定会成功
+nextFreeFast分配失败，即当前span的allocCache上分配失败时调用此方法，此方法在分配时会根据分配情况重新填充可分配span的allocCache，甚至申请新的span，此方法理论上一定会成功，除非out of memory
 
 ```Go
 func (*mcache) nextFree(spanClass) (v gclinkptr, resultSpan *mspan, shouldhelpgc bool) {
@@ -267,12 +269,12 @@ retry:
         goto havespan
     }
 
-    //到这，nonempty中没有可以分配的span，便利empty span列表，看能否找到一个可以清除一些空间的span
+    //到这，nonempty中没有可以分配的span，遍历empty span列表，看能否找到一个可以清除一些空间的span
     for s=c.empty.first; s != nil; s=s.next {
         if s.sweepgen==spanNeedSweeping {
             s.sweepgen = spanHasSweept //将span置为已经sweept，原子操作
             //得到一个需要清理的span，清理它看能否释放一些空间
-            c.empty.remove(s) //将该span查到队尾
+            c.empty.remove(s) //将该span插到队尾
             c.empty.insertBack(s)
             unlock(c.lock)
             s.sweep(true)//清理该span
@@ -309,6 +311,91 @@ havespan: //到这，s是一个被插入到empty列表尾部的有剩余空间�
     s.allocCache >>= s.freeindex % 64 //调整allocCache，使allocCache的最低位对齐freeindex
     return s
 }
+```
+
+#### mcentral.grow逻辑
+
+从mheap申请新的span
+
+```Go
+func (*mcentral) grow() *mspan {
+    npages := class_to_allocnpages[mcentral.sanclass.sizeClass] //计算要分配的span的页数
+    size = class_to_size(mcentral.sanclass.sizeClass) //mcentral 对应的span中object的大小
+    n := (npages << _pageShift) / size //计算span中可以分配的object的个数，其中_pageShift=13
+    s := _mheap.alloc(npages, mcentral.spanclass, false, true) //从heap中分配一个span
+    if s == nil {
+        return nil //heap分配失败
+    }
+    p := s.base()
+    s.limit = p + size*n //计算span中可以用来分配object的最后一个Byte的位置，它后面的字节是span中的碎片
+    heapBitsForAddr(s.base()).initSpan(s)
+    return s
+}
+```
+
+####  mheap.alloc逻辑
+
+```Go
+func (*mheap) alloc(npage uintptr, spanclass spanClass, large, needZero bool) *mspan {
+    var s *mspan
+    //systemstack 方法的作用是将从mheap上分配span的方法在系统的stack上执行，而不在任何G的stack中执行，原因是它会对heap加锁
+    systemstack(func(){ 
+        s = h.alloc_m(npage, spaceclass, large)
+    })
+
+    if s != nil {
+        if needZero {
+            // 将s中的内存刷为0
+        }
+    }
+    return s
+}
+
+func() systemstack(fn func)
+
+func (mheap) alloc_m(npage uintptr, spanclass spanClass, large bool) *mspan {
+    _g_ := getg()
+    if h.sweepdone == 0 {
+        h.reclaim(npage)
+    }
+    lock(h.lock) //对heap加锁
+
+    s := h.allocSpanLocked(npages)
+    if s != nil {
+        s.state=mSpanInUse //标记span的状态为使用中
+        s.spanclass = spanclass
+        if sizeclass := spanclass.sizeclass(); sizeclass == 0 {
+            //大对象，初始化一些属性
+            s.elemsize = s.npages << _PageShift 
+            s.divShift = 0
+            s.divMul = 0
+            s.divShift2 = 0
+            s.baseMask = 0
+        }else {
+            //普通对象，初始化属性
+            s.elemsize = class_to_size(sizeclass)
+            m := &class_to_divmagic[sizeclass]
+            s.divShift = m.shift
+            s.divMul = m.divMul
+            s.divShift2 = m.shift2
+            s.baseMask = m.baseMask
+        }
+        arena, pageInx, pageMask := pageIndexOf(s.base())
+        arena.pageInUse[pageInx] |= pageMask
+
+        h.pageInUse += npages //heap中使用中的page数量增加
+    }
+
+    unlock(h.lock)
+    return s
+
+}
+
+//从heap中分配span，stat是heap目前正在使用的内存的字节数
+func (*mheap) allocSpanLocked(npages uintptr, stat *uint64) {
+    
+}
+
 ```
 
 
