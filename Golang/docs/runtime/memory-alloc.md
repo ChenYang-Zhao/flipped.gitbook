@@ -335,6 +335,8 @@ func (*mcentral) grow() *mspan {
 
 ####  mheap.alloc逻辑
 
+从heap中分配一个页数为npages的span
+
 ```Go
 func (*mheap) alloc(npage uintptr, spanclass spanClass, large, needZero bool) *mspan {
     var s *mspan
@@ -355,12 +357,13 @@ func() systemstack(fn func)
 
 func (mheap) alloc_m(npage uintptr, spanclass spanClass, large bool) *mspan {
     _g_ := getg()
+    //为了避免heap无限制的增长，在从heap中分配npages的空间之前，sweep并reclaim至少npages的空间
     if h.sweepdone == 0 {
         h.reclaim(npage)
     }
     lock(h.lock) //对heap加锁
 
-    s := h.allocSpanLocked(npages)
+    s := h.allocSpanLocked(npages)//从已经加锁的heap中分配出npages的空间
     if s != nil {
         s.state=mSpanInUse //标记span的状态为使用中
         s.spanclass = spanclass
@@ -398,7 +401,7 @@ func (*mheap) allocSpanLocked(npages uintptr, stat *uint64) {
     if s != nil {
         goto haveSpan
     }
-    //heap 的free list分配失败，增常heap的空间
+    //heap 的free list分配失败，增长heap的空间
     if !h.grow(npages){
         return nil
     }
@@ -422,12 +425,54 @@ haveSpan:
         h.freeSpanLocked(t, false, false, s.unusedsince)
         s.state = mSpanFree
     }
-    h.setSpans(s.base(), npages, s)
+    h.setSpans(s.base(), npages, s) //修改heap的 span map，添加s
     return s
 }
 
 ```
 
+#### heap.pickFreeSpan逻辑
+
+```Go
+func (h *mheap) pickFreeSpan(npage uintptr) *mspan {
+    tf := h.free.find(npage) //从heap的free 并且non-scavenged 堆中找到一个node
+    ts := h.scav.find(npage) //从heap的free 并且scavenged 堆中找到一个node
+
+    var s *mspan
+    if tf != nil && (ts == nil||tf.spanKey.npages <=ts.spanKey.npages) { //tf更合适， best-fit算法
+        s = tf.spanKey
+        h.free.removeNode(tf) //从堆中移除node
+    }else if ts != nil && (tf==nil||tf.spanKey.npages > ts.spanKey.npages) { //ts更合适
+        s = ts.spanKey
+        h.scav.removeNode(ts)
+    }
+    return s
+}
+```
+
+#### heap.grow()逻辑
+
+从os申请至少npage的空间，添加到heap中
+
+```Go
+func(h *mheap) grow(npage uintptr) bool {
+    ask := npage << _PageShift //要申请内存的Byte大小
+    v, size := sysAlloc(ask) //向os申请内存
+    if v == nil {
+        //分配失败
+        return false
+    }
+
+    h.scavengeLargest(size) //从heap的free堆中清理出一些内存，从最大的span开始清理
+    //创建一个fake span并且free它， 这样这个span就会添加到heap的free列表中
+    s := (*mspan)(h.spanalloc.alloc())
+    s.init(uintptr(v) size/pageSize)
+    h.setSpans(s.base(), s.npages, s)
+    s.state = mSpanInUse
+    h.freeSpanLocked(s, false, true, 0)
+    return true
+}
+```
 
 
 ### 参考
