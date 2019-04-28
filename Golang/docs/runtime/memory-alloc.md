@@ -56,6 +56,32 @@ type mcache struct {
 
 ```
 
+#### mheap
+
+```Go
+type mheap struct {
+    lock mutex 
+    free mTreap //free and non-scavenged spans 堆结构
+    scav mTreap //free and scavenged spans
+    sweepgen uint32 
+    sweepdone uint32
+    sweepers uint32
+    allSpans []*mspan //heap中的所有span的列表
+    sweepSpans [2]gcSweepBuf //用于gc
+    arenas [1 << arenaL1Bits]*[1 << arenaL2Bits]*heapArena //heap中所有arena的信息，
+    allArenas []arenaIndx //heap中所有arena的index列表
+    sweepArenas []arenaIdx //allArenas 的一份拷贝，用户GC
+    central [numSpanClasses] struct { // 根据span class索引的mcentral的map
+        mcentral mcentral
+        ...
+    }
+    spanalloc fixalloc //一个简单的分配器，用于创建对应结构的指针
+    cachealloc fixalloc
+    treapalloc fixalloc
+    ...
+}
+```
+
 
 ### 流程
 
@@ -413,19 +439,21 @@ func (*mheap) allocSpanLocked(npages uintptr, stat *uint64) {
 
 haveSpan:
     if s.npages > npages {
-        //将多余的内存还给heap
+        // 申请到的页数大于请求的页数，将申请到的页拆分成两个span，s和t，
+        // 其中s对应真实要分配的span，t是拆出来的多余的span，
+        // s被return ，t被插入到heap的free堆里供下次分配
         t := (*mspan)(h.spanalloc.alloc())
-        t.init(s.base()+npages<<_PageShift, s.npages-npages) //根据给定的npages和起始位置初始化span
+        t.init(s.base()+npages<<_PageShift, s.npages-npages)  //初始化t
         s.npages = npages 
-        h.setSpan(t.base()-1, s)
+        h.setSpan(t.base()-1, s) //设置s和t的头尾位置
         h.setSpan(t.base(), t)
         h.setSpan(t.base()+t.npages*pageSize-1, t)
         s.state = mSpanManual
         t.state = mSpanManual
-        h.freeSpanLocked(t, false, false, s.unusedsince)
+        h.freeSpanLocked(t, false, false, s.unusedsince) //将t插入到heap的free堆中，下次可以分配
         s.state = mSpanFree
     }
-    h.setSpans(s.base(), npages, s) //修改heap的 span map，添加s
+    h.setSpans(s.base(), npages, s) //修改heap的 span map，添加s, 将span中的每一页指向该span（更新heap arena中的结构）
     return s
 }
 
@@ -452,7 +480,7 @@ func (h *mheap) pickFreeSpan(npage uintptr) *mspan {
 
 #### heap.grow()逻辑
 
-从os申请至少npage的空间，添加到heap中
+从os申请至少npage的空间，添加到heap中；成功返回true， 否则返回false
 
 ```Go
 func(h *mheap) grow(npage uintptr) bool {
@@ -464,12 +492,12 @@ func(h *mheap) grow(npage uintptr) bool {
     }
 
     h.scavengeLargest(size) //从heap的free堆中清理出一些内存，从最大的span开始清理
-    //创建一个fake span并且free它， 这样这个span就会添加到heap的free列表中
-    s := (*mspan)(h.spanalloc.alloc())
-    s.init(uintptr(v) size/pageSize)
-    h.setSpans(s.base(), s.npages, s)
+    //创建一个fake span并且free它， 这样这个span就会添加到heap的free堆中, 并且执行正确的合并操作
+    s := (*mspan)(h.spanalloc.alloc()) //创建一个逻辑span
+    s.init(uintptr(v) size/pageSize) //根据当前分配的内存信息初始化这个span
+    h.setSpans(s.base(), s.npages, s) //设置heap arena中的page到该span的指针
     s.state = mSpanInUse
-    h.freeSpanLocked(s, false, true, 0)
+    h.freeSpanLocked(s, false, true, 0) //将该span尝试进行合并并加入到heap的free堆中
     return true
 }
 ```
