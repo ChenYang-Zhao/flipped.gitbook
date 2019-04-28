@@ -502,6 +502,27 @@ func(h *mheap) grow(npage uintptr) bool {
 }
 ```
 
+#### largeAlloc逻辑
+
+分配大于32KB的大对象
+
+```Go
+func largeAlloc(size uintptr, needZero bool, noscan) *mspan {
+    npages := size >> _PageShift // _PageShift=13 计算要分配的页数
+    if size % _PageMask != 0 {
+        //size 不是页大小的整倍数，ngapes+1
+        npages ++
+    }
+    deductSweepCredit(npages*_PageSize, npages)
+    s := _mheap.alloc(npages, makeSpanClass(0, noscan), true, needzero) //从heap中分配一个npages页数的span
+    if s == nil {
+        throw("out of memory")
+    }
+    s.limit = s.base()+size//设置span中有效位的位置
+    heapBitsForAddr(s.base()).initSpan(s) //设置span的属性
+    return s
+}
+```
 
 ### 参考
 
