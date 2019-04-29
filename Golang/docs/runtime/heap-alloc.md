@@ -1,9 +1,9 @@
-## Go内存分配机制
+## Go堆上内存分配机制
 
 
 ### 分配流程
 
-Golang的内存分配是个很复杂的过程，其内存分配起源于TCMalloc， 随着Golang版本的升级又有了不小的变化，但其内存管理的数据结构与TCMalloc基本一致；
+Golang heap中的内存分配是个很复杂的过程，其内存分配起源于TCMalloc， 随着Golang版本的升级又有了不小的变化，但其内存管理的数据结构与TCMalloc基本一致；
 
 Golang运行时的所有堆内存由一个叫mheap_的全局变量管理，golang运行中分配的全部内存最终都从它分配而来；
 
@@ -24,7 +24,6 @@ Golang运行时的所有堆内存由一个叫mheap_的全局变量管理，golan
 7. OS也无法分配内存，则报oom error；
 
 ### 数据模型
-
 
 #### mspan
 
