@@ -24,6 +24,8 @@ Golang运行时的所有堆内存由一个叫mheap_的全局变量管理，golan
 
 #### mspan
 
+[](../../imgs/runtime/mspan.png)
+
 ```Go
 type gcBits uint8
 
@@ -49,19 +51,9 @@ type mspan struct {
 } 
 ```
 
-#### mcentral
-
-```Go
-type mcentral struct {
-    lock mutex //锁，由于mcentral对象是所有goroutine共享的，分配必须加锁
-    spanclass spanClass //此mcentral对应的class对象，每个class对应一个分配的object的大小
-    nonempty mSpanList  //还有可分配空间的span列表
-    empty mSpanList //没有可分配空间的span列表
-    nmalloc uint64 // 从次mcentral分配出去的object的累计个数，假设所有已被mcache缓存的span中所有的object都已分配
-}
-```
-
 #### mcache
+
+[](../../imgs/runtime/mcache.png)
 
 ```Go
 type mcache struct {
@@ -73,7 +65,23 @@ type mcache struct {
 
 ```
 
+#### mcentral
+
+[](../../imgs/runtime/mcentral.png)
+
+```Go
+type mcentral struct {
+    lock mutex //锁，由于mcentral对象是所有goroutine共享的，分配必须加锁
+    spanclass spanClass //此mcentral对应的class对象，每个class对应一个分配的object的大小
+    nonempty mSpanList  //还有可分配空间的span列表
+    empty mSpanList //没有可分配空间的span列表
+    nmalloc uint64 // 从次mcentral分配出去的object的累计个数，假设所有已被mcache缓存的span中所有的object都已分配
+}
+```
+
 #### mheap
+
+[](../../imgs/runtime/mheap.png)
 
 ```Go
 type mheap struct {
