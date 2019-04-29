@@ -24,7 +24,7 @@ Golang运行时的所有堆内存由一个叫mheap_的全局变量管理，golan
 
 #### mspan
 
-[](../../imgs/runtime/mspan.png)
+![](../../imgs/runtime/mspan.png)
 
 ```Go
 type gcBits uint8
@@ -53,7 +53,7 @@ type mspan struct {
 
 #### mcache
 
-[](../../imgs/runtime/mcache.png)
+![](../../imgs/runtime/mcache.png)
 
 ```Go
 type mcache struct {
@@ -67,7 +67,7 @@ type mcache struct {
 
 #### mcentral
 
-[](../../imgs/runtime/mcentral.png)
+![](../../imgs/runtime/mcentral.png)
 
 ```Go
 type mcentral struct {
@@ -81,7 +81,7 @@ type mcentral struct {
 
 #### mheap
 
-[](../../imgs/runtime/mheap.png)
+![](../../imgs/runtime/mheap.png)
 
 ```Go
 type mheap struct {
