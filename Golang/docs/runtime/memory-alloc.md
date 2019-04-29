@@ -4,9 +4,13 @@
 ### 分配流程
 
 Golang的内存分配是个很复杂的过程，其内存分配起源于TCMalloc， 随着Golang版本的升级又有了不小的变化，但其内存管理的数据结构与TCMalloc基本一致；
+
 Golang运行时的所有堆内存由一个叫mheap_的全局变量管理，golang运行中分配的全部内存最终都从它分配而来；
+
 为了更方便地管理内存，golang将从OS申请的内存分成大小不同的span，每个span包含一个或多个连续的page，page的大小是固定的；此外，由于运行是分配的对象的大小可能差别很大，为了方便管理，golang将32KB以下的对象按大小分为了不同的类（class）， 最小的8B，最大的32KB；不仅如此，golang的内存管理也将span按能分配的对象的class分为了不同的列表，每一种class的对象的分配由一个叫central的对象进行管理，每种class对应一个mcentral；
+
 此外，由于heap和central都是全局对象，从其中分配内存需要加锁，为了加快对象的分配速度，golang的每个Gotourine中都有一个叫cache的结构， 小于32KB的小对象的分配首先向自己goroutine的cache申请，此操作不需要加锁；如果cache缓存的span不足以分配，再从central中分配一块新的span给cache，然后从这个新的span中分配内存；如果central中的内存也不足以分配，则从heap的空闲内存中分配新的span到central，再从新的span中分配对象，并缓存到cache；heap也不够的话，就从OS中申请新的内存；
+
 另外，大小超过32KB的大对象的分配是直接在heap中进行的，不会经过cache和central；
 
 总结一下的话，golang的内存分配过程大体如下：（以小于32KB的小对象为例）
