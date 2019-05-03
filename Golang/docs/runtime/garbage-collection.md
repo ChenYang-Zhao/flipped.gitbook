@@ -104,6 +104,65 @@ Golang的gc采用并发的标记-清楚算法，并使用写屏障（write-barri
 一次gc后，如果后续分配的内存达到当前使用内存的一定比例，就会导致再一次的GC；比例的数值可以通过环境变量GOGC来控制，默认为100，意味着当内存使用达到当前内存使用量的一倍时再次触发GC；
 
 
+### 核心逻辑实现
+
+```Go
+func gcStart(trigger gcTrigger) {
+    // 循环清理未清理的span，直到全部清理完成
+    for trigger.test() && sweepone() != ^uintptr(0) {
+        ... //清理计数
+    }
+    semacquire(&work.startSema) //获取gc phase从off到mark/mark termination的锁
+    if !trigger.test(){ //拿到锁之后，再次检查phase转换的条件是否满足
+        semarelease(&work.startSema)
+        return
+    }
+    //检查本次gc是否是强制发起的
+    work.userForced = trigger.kind == gcTriggerAlways || trigger.kind == gcTriggerCycle 
+    mode := gcBackgroundMode //gc 和sweep都并发，正常模式
+    if debug.gcstoptheworld == 1 {
+        mode = gcForceMode //强制触发，gc阶段STW，并发sweep
+    }else if debug.gcstoptheworld == 2{
+        mode = gcForceBlockMode // gc和sweep都是STW，block模式
+    }
+
+    semacquire(&worldsema) //获取stop the world，STW的信号量
+
+    // 检查所有P的mcache是否都已经flush过, flush mcache的过程在acquirep中触发
+    for _, p := range allp{
+         fg := p.mcache.flushGen; fg != _mheap.sweepgen {
+             throw("p mcache not flushed")
+         }
+    }
+    
+    gcBgMarkStartWorkers() //开启后台的mark workers
+    gcResetMarkState //
+
+    systemstack(stopTheWorldWithSema) //stop the world
+    // 开始扫描之前，确保所有的sweep都是swept状态
+    systemstack(func(){
+        finishsweep_m()
+    })
+
+    clearpools()
+
+    gcController.startCycle() //开始gc
+    work.heapGoal = memstats.next_gc //设置gc的目标
+
+    if mode != gcBackgroundMode {
+        schedEnableUser(false) //停止用户goroutine的调度
+    }
+    
+    //以下开始进入mark阶段
+    setGCPhase(_GCmark)
+
+    gcBgMarkPrepare()
+    gcMarkRootPrepare()
+
+    gcMarkTinyAllocs()
+}
+```
+
 
 ### 参考
 
