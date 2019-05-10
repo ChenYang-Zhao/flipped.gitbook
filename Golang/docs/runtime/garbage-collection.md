@@ -104,7 +104,21 @@ Golang的gc采用并发的标记-清楚算法，并使用写屏障（write-barri
 一次gc后，如果后续分配的内存达到当前使用内存的一定比例，就会导致再一次的GC；比例的数值可以通过环境变量GOGC来控制，默认为100，意味着当内存使用达到当前内存使用量的一倍时再次触发GC；
 
 
+### Golang的三色标记法
+
+Golang的标记-清理gc算法使用了三色标记法，大致含义是：
+
+- 最开始所有的对象都是白色；
+- 从gc root扫描所有的可达对象，标记为灰色，并入队；
+- 循环从队列取出对象并标记为黑色，将其饮用对象标记为灰色，并入队；知道队列为空；
+- 标记完成后，此时的黑色对象是gc后继续使用的对象，白色对象是可以清理的对象；
+
+标记过程和用户代码会一起执行，标记阶段用户代码对内存的修改会改变对象之间的引用关系，为了保证标记结果的正确性，golang引入了写屏障；简单来说就是在标记阶段用户代码对内存的改动都会被写屏障截获，并将修改后的对象之间的引用关系重新标记并入队；
+
+
 ### 核心逻辑实现
+
+#### gc启动 
 
 ```Go
 func gcStart(trigger gcTrigger) {
@@ -157,9 +171,19 @@ func gcStart(trigger gcTrigger) {
     setGCPhase(_GCmark)
 
     gcBgMarkPrepare()
-    gcMarkRootPrepare()
+    gcMarkRootPrepare() //将root scan job（stack，globals）入队
 
-    gcMarkTinyAllocs()
+    gcMarkTinyAllocs() //将tiny block上的object置为gray
+
+    systemstack(func(){
+        now = startTheWorldWithSema()
+    })
+
+    if mode != gcBackgroundMode{
+        Goshed()
+    }
+
+    semrelease(&work.startSema)
 }
 ```
 
