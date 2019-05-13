@@ -205,18 +205,19 @@ func gcBgMarkWorker(_p_ *p) {
     notewakup(&work.bgMarkReady)
 
     for {
-        gopark(...)
-        
+        gopark(...) //park住当前直到gcController.findRunnableWorkers()唤醒它
+        //如果当前P die了，退出
         if _p_.gcBgMarkWorker.ptr) != gp {
             break
         }
-
+        //disable 抢占
         park.m.set(acquirem())
 
         systemstack(func() {
+            //为了使当前G的可以被scan，设置当前goroutine为可抢占，这实际上让两个mark worker互相scan
             casgstatus(gp, _Grunning, _Gwaiting)
             switch _p_.gcMarkWorkerMode {
-            case gcMarkWorkerDedicatedMode :
+            case gcMarkWorkerDedicatedMode ://表示P与它的mark worker绑定，mark worker 开始不被抢占地执行
                 gcDrain(&_p_.gcw, gcDrainUntilPreempt|gcDrainFlushbgCredit)
                 if gp.preempt {
 
@@ -224,12 +225,12 @@ func gcBgMarkWorker(_p_ *p) {
                 gcDrain(&_p_.gcw, gcDrainFlushbgCredit)
             case gcMarkWorkerFractionalMode:
                 gcDrain(...)
-            case gcMarkWorkerIdleMode:
+            case gcMarkWorkerIdleMode: //P没有其它可执行的goroutine，开始空转idle worker
                 gcDrain(...)  
             }
             casgstatus(gp,_Gwaiting, _Grunning)
         })
-
+        //gc mark 完毕，退出
         if incnwait()== work.nproc && !gMarkAvailable(nil) {
             _p_.gcBgMarkWorker.set(nil)
             releasem(park.m.ptr())
