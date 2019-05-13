@@ -187,6 +187,61 @@ func gcStart(trigger gcTrigger) {
 }
 ```
 
+#### gMarkWorker启动
+
+```Go
+func gcBgMarkWorker(_p_ *p) {
+    gp := getg()
+
+    type parkInfo struct {
+        m muintptr
+        attach puintptr
+    }
+
+    park := new(parkInfo)
+    park.m.set(acquirem())
+    park.attach.set(_p_)
+    //通知gcBgMarkStartWorkers 当前mark work已经ready
+    notewakup(&work.bgMarkReady)
+
+    for {
+        gopark(...)
+        
+        if _p_.gcBgMarkWorker.ptr) != gp {
+            break
+        }
+
+        park.m.set(acquirem())
+
+        systemstack(func() {
+            casgstatus(gp, _Grunning, _Gwaiting)
+            switch _p_.gcMarkWorkerMode {
+            case gcMarkWorkerDedicatedMode :
+                gcDrain(&_p_.gcw, gcDrainUntilPreempt|gcDrainFlushbgCredit)
+                if gp.preempt {
+
+                }
+                gcDrain(&_p_.gcw, gcDrainFlushbgCredit)
+            case gcMarkWorkerFractionalMode:
+                gcDrain(...)
+            case gcMarkWorkerIdleMode:
+                gcDrain(...)  
+            }
+            casgstatus(gp,_Gwaiting, _Grunning)
+        })
+
+        if incnwait()== work.nproc && !gMarkAvailable(nil) {
+            _p_.gcBgMarkWorker.set(nil)
+            releasem(park.m.ptr())
+            gcMarkDone()
+
+            park.m.set(acquirem())
+            park.attach.set(_p_)
+        }
+    }
+}
+```
+
 
 ### 参考
 
