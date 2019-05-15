@@ -995,3 +995,6 @@ func (p Programmer) growUp() {
 }
 ```
 
+### 参考
+
+- [深度解密Go语言之关于 interface 的10个问题](https://gocn.vip/article/1717)
