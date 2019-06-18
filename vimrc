@@ -158,6 +158,7 @@ let g:go_def_mode = 'godef'
 
 " airline theme
 let g:airline_theme='base16_google'
+let g:airline_powerline_fonts = 1
 
 " 禁用方向键 使用 HJKL
 noremap <Up>        <Nop>
