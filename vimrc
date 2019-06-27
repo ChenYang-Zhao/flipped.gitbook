@@ -65,7 +65,7 @@ set smarttab
 "将Tab键自动转换成空格 真正需要Tab键时使用[Ctrl + V + Tab]
 set expandtab
 
-set guifont=Monaco:h14 
+set guifont=Monaco:h12 
 
 "设置编码方式
 set encoding=utf-8
@@ -103,6 +103,7 @@ Plugin 'vim-airline/vim-airline'
 Plugin 'liuchengxu/space-vim-dark'
 Plugin 'vim-airline/vim-airline-themes'
 Plugin 'Yggdroot/LeaderF'
+Plugin 'tpope/vim-fugitive'
 
 call vundle#end()            " required
 filetype plugin indent on    " required
@@ -198,3 +199,5 @@ au FileType python  nmap <leader>d :YcmCompleter GoTo<CR>
 au FileType python  nmap <leader>t :YcmCompleter GetType<CR>
 au FileType python  nmap <leader>p :YcmCompleter GetParent<CR>
 
+" git
+nmap <leader>b :Gblame<CR>
