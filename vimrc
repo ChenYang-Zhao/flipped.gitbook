@@ -104,6 +104,8 @@ Plugin 'liuchengxu/space-vim-dark'
 Plugin 'vim-airline/vim-airline-themes'
 Plugin 'Yggdroot/LeaderF'
 Plugin 'tpope/vim-fugitive'
+Plugin 'itchyny/vim-cursorword'
+Plugin 'lfv89/vim-interestingwords'
 
 call vundle#end()            " required
 filetype plugin indent on    " required
